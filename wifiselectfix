@@ -1,0 +1,21 @@
+def select_wifi(event):
+    listbox = event.widget  # Folosește widget-ul care a declanșat evenimentul
+    selection = listbox.curselection()
+    if not selection:
+        return  # Nu este nicio selecție
+    index = selection[0]
+    selected_item = listbox.get(index)
+    if not selected_item:
+        return
+
+    # Presupunem formatul: "ESSID (BSSID) - canal CHANNEL"
+    parts = selected_item.split(" (")
+    if len(parts) < 2:
+        return
+
+    essid = parts[0]
+    # Extragem BSSID-ul până la caracterul ")"
+    bssid = parts[1].split(")")[0]
+    selected_bssid.set(bssid)
+    selected_essid.set(essid)
+    result_display.insert(tk.END, f"[info] selectat: {essid} | bssid: {bssid}\n", "info")

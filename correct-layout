@@ -1,0 +1,25 @@
+# Configurăm un layout corect pentru butoane folosind grid
+bottom_frame = tk.Frame(root, bg="black")
+bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=10)
+
+# Adăugăm un câmp de text pentru BSSID
+tk.Label(bottom_frame, text="BSSID pentru atac:", bg="black", fg="white").grid(row=0, column=0, padx=5, pady=5)
+bssid_entry = tk.Entry(bottom_frame, bg="black", fg="white", insertbackground="white")
+bssid_entry.grid(row=0, column=1, padx=5, pady=5)
+
+# Container pentru butoane
+button_frame = tk.Frame(bottom_frame, bg="black")
+button_frame.grid(row=1, column=0, columnspan=2, pady=10)
+
+# Butoane
+buttons = [
+    ("atac deauth", attack_deauth),
+    ("deauth flood continuu", continuous_deauth),
+    ("opreste deauth", stop_deauth),
+    ("brute-force wps", brute_force_wps),
+    ("sparge handshake", crack_handshake)
+]
+
+# Utilizăm grid pentru a organiza butoanele într-o rețea
+for i, (text, cmd) in enumerate(buttons):
+    tk.Button(button_frame, text=text, command=cmd, bg="black", fg="white").grid(row=i//4, column=i%4, padx=5, pady=5)

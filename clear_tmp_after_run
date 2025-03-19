@@ -1,0 +1,17 @@
+import os
+import glob
+import tkinter as tk
+from tkinter import messagebox, scrolledtext
+from threading import Thread
+
+def clear_cache():
+    patterns = ['/tmp/networks-*.csv', '/tmp/networks-*.pak']
+    for pattern in patterns:
+        for file in glob.glob(pattern):
+            try:
+                os.remove(file)
+                print(f"Removed file: {file}")
+            except Exception as e:
+                print(f"Error removing file {file}: {str(e)}")
+
+clear_cache()

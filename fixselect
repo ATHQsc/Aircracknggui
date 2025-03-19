@@ -1,0 +1,22 @@
+def scan_networks(interface):
+    network_text.delete(1.0, tk.END)
+    while scanning:
+        csv_file = generate_filename()
+        os.system(f"timeout 2 airodump-ng {interface}mon -w {csv_file} --output-format csv")
+        try:
+            with open(csv_file, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            time.sleep(1)
+            continue
+        for line in lines[2:]:
+            if line.strip():
+                parts = line.split(',')
+                if len(parts) > 13:
+                    essid = parts[13].strip()
+                    bssid = parts[0].strip()
+                    network_str = f"{essid} ({bssid})"  # Am eliminat informațiile suplimentare despre canal
+                    existing = network_text.get(1.0, tk.END)
+                    if network_str not in existing:
+                        network_text.insert(tk.END, network_str + "\n")
+        time.sleep(1)
